@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Student Dropout Analytics</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+  <style>
+    :root { --bg:#f4f6fb; --card:#fff; --ink:#1b2430; --muted:#5b6778; --line:#d9dfea; --accent:#1565c0; }
+    * { box-sizing: border-box; }
+    body { margin:0; font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+           background:var(--bg); color:var(--ink); }
+    main { max-width: 980px; margin: 28px auto; padding: 0 16px; }
+    h1 { font-size:1.5rem; margin:0 0 4px; }
+    .sub { color:var(--muted); margin:0 0 20px; }
+    .grid { display:grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap:16px; }
+    .card { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:18px; }
+    .card h2 { font-size:1rem; margin:0 0 12px; }
+    .stats { display:grid; grid-template-columns: repeat(3, 1fr); gap:12px; margin-bottom:16px; }
+    .stat { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:14px; text-align:center; }
+    .stat b { display:block; font-size:1.6rem; }
+    .stat span { color:var(--muted); font-size:.85rem; }
+    table { width:100%; border-collapse:collapse; font-size:.9rem; }
+    th, td { text-align:right; padding:7px 6px; border-bottom:1px solid var(--line); }
+    th:first-child, td:first-child { text-align:left; }
+    tr.best td { font-weight:700; background:#e3f2fd; }
+    .warn { background:#fff8e1; border:1px solid #ffe082; padding:10px 14px; border-radius:8px;
+            margin-bottom:16px; font-size:.9rem; display:none; }
+    .small { color:var(--muted); font-size:.82rem; margin-top:10px; }
+    a { color:var(--accent); }
+    canvas { max-height: 280px; }
+  </style>
+</head>
+<body>
+<main>
+  <h1>Student Dropout Analytics</h1>
+  <p class="sub" id="rule">Loading...</p>
+  <div class="warn" id="warn"></div>
+
+  <div class="stats">
+    <div class="stat"><b id="total">-</b><span>Students</span></div>
+    <div class="stat"><b id="risk">-</b><span>At risk</span></div>
+    <div class="stat"><b id="pct">-</b><span>At-risk share</span></div>
+  </div>
+
+  <div class="grid">
+    <div class="card"><h2>At risk versus safe</h2><canvas id="pie"></canvas></div>
+    <div class="card"><h2>At-risk rate by past failures (%)</h2><canvas id="failBar"></canvas></div>
+    <div class="card"><h2>Model comparison (held-out test set)</h2>
+      <table id="models"></table>
+      <p class="small" id="modelNote"></p>
+    </div>
+    <div class="card"><h2>Top factors (Decision Tree importance)</h2><canvas id="imp"></canvas></div>
+  </div>
+  <p class="small"><a href="/">Back to the predictor</a></p>
+</main>
+
+<script>
+  fetch("/analytics")
+    .then((res) => res.json())
+    .then((d) => {
+      document.getElementById("rule").textContent = d.label_rule + "  |  model in use: " + d.model;
+      document.getElementById("total").textContent = d.total_students;
+      document.getElementById("risk").textContent = d.at_risk;
+      document.getElementById("pct").textContent = d.at_risk_percent + "%";
+
+      new Chart(document.getElementById("pie"), {
+        type: "pie",
+        data: { labels: ["At risk", "Safe"],
+                datasets: [{ data: [d.at_risk, d.safe], backgroundColor: ["#c62828", "#2e7d32"] }] }
+      });
+
+      const fails = d.risk_by_failures || {};
+      new Chart(document.getElementById("failBar"), {
+        type: "bar",
+        data: { labels: Object.keys(fails),
+                datasets: [{ label: "% at risk", data: Object.values(fails), backgroundColor: "#1565c0" }] },
+        options: { scales: { y: { beginAtZero: true, max: 100 } }, plugins: { legend: { display: false } } }
+      });
+
+      const m = d.metrics || {};
+      if (m.warnings && m.warnings.length) {
+        const w = document.getElementById("warn");
+        w.textContent = m.warnings.join(" ");
+        w.style.display = "block";
+      }
+
+      const table = document.getElementById("models");
+      const fmt = (v) => (v === null || v === undefined ? "-" : v);
+      let html = "<tr><th>Model</th><th>Acc</th><th>Prec</th><th>Recall</th><th>F1</th><th>AUC</th></tr>";
+      Object.entries(m.models || {}).forEach(([name, r]) => {
+        html += "<tr class='" + (name === m.best_model ? "best" : "") + "'><td>" + name + "</td><td>" +
+                fmt(r.accuracy) + "</td><td>" + fmt(r.precision) + "</td><td>" + fmt(r.recall) + "</td><td>" +
+                fmt(r.f1) + "</td><td>" + fmt(r.roc_auc) + "</td></tr>";
+      });
+      table.innerHTML = html;
+      document.getElementById("modelNote").textContent = m.test_rows
+        ? "Trained on " + m.train_rows + " students, tested on " + m.test_rows + ". Best model is highlighted."
+        : "Run python ml/train_model.py to generate metrics.";
+
+      const imp = m.feature_importances || {};
+      const names = Object.keys(imp).slice(0, 8);
+      new Chart(document.getElementById("imp"), {
+        type: "bar",
+        data: { labels: names,
+                datasets: [{ data: names.map((n) => imp[n]), backgroundColor: "#6a1b9a" }] },
+        options: { indexAxis: "y", plugins: { legend: { display: false } } }
+      });
+    })
+    .catch((err) => {
+      document.getElementById("rule").textContent = "Could not load analytics: " + err.message;
+    });
+</script>
+</body>
+</html>

@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Student Dropout Risk Predictor</title>
+  <style>
+    :root { --bg:#f4f6fb; --card:#fff; --ink:#1b2430; --muted:#5b6778; --line:#d9dfea; --accent:#1565c0; }
+    * { box-sizing: border-box; }
+    body { margin:0; font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+           background:var(--bg); color:var(--ink); }
+    main { max-width: 520px; margin: 32px auto; padding: 0 16px; }
+    .card { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:24px; }
+    h1 { font-size:1.4rem; margin:0 0 4px; }
+    p.sub { margin:0 0 20px; color:var(--muted); font-size:.95rem; }
+    label { display:block; font-weight:600; font-size:.9rem; margin:14px 0 6px; }
+    input, select { width:100%; padding:10px 12px; border:1px solid var(--line); border-radius:8px;
+                    font-size:1rem; background:#fff; color:var(--ink); }
+    input:focus, select:focus { outline:2px solid var(--accent); outline-offset:1px; }
+    .row { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
+    button { margin-top:22px; width:100%; padding:12px; border:0; border-radius:8px; background:var(--accent);
+             color:#fff; font-size:1rem; font-weight:600; cursor:pointer; }
+    button:disabled { opacity:.6; cursor:wait; }
+    #result { margin-top:20px; padding:16px; border-radius:10px; display:none; border:1px solid var(--line); }
+    #result.low { background:#e8f5e9; border-color:#a5d6a7; }
+    #result.medium { background:#fff8e1; border-color:#ffe082; }
+    #result.high { background:#ffebee; border-color:#ef9a9a; }
+    #result .level { font-size:1.2rem; font-weight:700; }
+    .bar { height:10px; background:#e5e9f2; border-radius:6px; margin-top:10px; overflow:hidden; }
+    .bar > div { height:100%; background:#455a64; width:0; transition:width .4s; }
+    #error { margin-top:16px; color:#b71c1c; font-size:.92rem; display:none; }
+    footer { text-align:center; margin-top:18px; font-size:.9rem; }
+    a { color:var(--accent); }
+    .note { margin-top:14px; font-size:.8rem; color:var(--muted); }
+  </style>
+</head>
+<body>
+<main>
+  <div class="card">
+    <h1>Student Dropout Risk Predictor</h1>
+    <p class="sub">Enter a student's academic details to estimate the risk of failing the final grade.</p>
+
+    <form id="form" novalidate>
+      <div class="row">
+        <div>
+          <label for="age">Age</label>
+          <input id="age" type="number" min="10" max="35" value="17" required>
+        </div>
+        <div>
+          <label for="school">School</label>
+          <select id="school">
+            <option value="GP">GP</option>
+            <option value="MS">MS</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="row">
+        <div>
+          <label for="studytime">Weekly study time</label>
+          <select id="studytime">
+            <option value="1">1: under 2 hours</option>
+            <option value="2" selected>2: 2 to 5 hours</option>
+            <option value="3">3: 5 to 10 hours</option>
+            <option value="4">4: over 10 hours</option>
+          </select>
+        </div>
+        <div>
+          <label for="failures">Past class failures</label>
+          <input id="failures" type="number" min="0" max="10" value="0" required>
+        </div>
+      </div>
+
+      <label for="absences">Absences</label>
+      <input id="absences" type="number" min="0" max="200" value="4" required>
+
+      <div class="row">
+        <div>
+          <label for="schoolsup">Extra school support</label>
+          <select id="schoolsup">
+            <option value="1">Yes</option>
+            <option value="0" selected>No</option>
+          </select>
+        </div>
+        <div>
+          <label for="famsup">Family support</label>
+          <select id="famsup">
+            <option value="1" selected>Yes</option>
+            <option value="0">No</option>
+          </select>
+        </div>
+      </div>
+
+      <button id="btn" type="submit">Predict risk</button>
+    </form>
+
+    <div id="error"></div>
+
+    <div id="result" aria-live="polite">
+      <div class="level" id="level"></div>
+      <div id="detail"></div>
+      <div class="bar"><div id="fill"></div></div>
+    </div>
+
+    <p class="note">A screening aid for advisors. A high score should lead to support, never to a penalty.</p>
+  </div>
+  <footer><a href="/dashboard">View analytics dashboard</a></footer>
+</main>
+
+<script>
+  const $ = (id) => document.getElementById(id);
+
+  $("form").addEventListener("submit", async (event) => {
+    event.preventDefault();
+    $("error").style.display = "none";
+    $("result").style.display = "none";
+    $("btn").disabled = true;
+
+    const payload = {
+      school: $("school").value,
+      age: $("age").value,
+      studytime: $("studytime").value,
+      failures: $("failures").value,
+      absences: $("absences").value,
+      schoolsup: $("schoolsup").value,
+      famsup: $("famsup").value
+    };
+
+    try {
+      // relative URL: works locally and after deployment, no CORS needed
+      const response = await fetch("/predict", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload)
+      });
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error((data.details || [data.error || "Request failed"]).join(" "));
+      }
+
+      const percent = Math.round(data.probability * 100);
+      const box = $("result");
+      box.className = data.risk_level.toLowerCase();
+      box.style.display = "block";
+      $("level").textContent = data.risk_level + " risk of failing";
+      $("detail").textContent = "Estimated probability: " + percent + "%  (model: " + data.model + ")";
+      $("fill").style.width = percent + "%";
+    } catch (err) {
+      $("error").textContent = "Could not get a prediction: " + err.message;
+      $("error").style.display = "block";
+    } finally {
+      $("btn").disabled = false;
+    }
+  });
+</script>
+</body>
+</html>
