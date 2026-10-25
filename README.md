@@ -1,85 +1,169 @@
-# Student Performance & Dropout Prediction
+# Student Academic-Risk Prediction
 
-An end-to-end machine learning project that identifies students at academic risk
-from historical educational indicators, so advisors can intervene early.
+A small end-to-end machine-learning demo that estimates whether a student may be at risk of receiving a low final grade, based on selected academic and support indicators. It includes data preparation, exploratory analysis, model comparison, a Flask API, and a browser-based prediction form/dashboard.
 
-**Workflow:** data cleaning -> exploratory data analysis -> feature engineering ->
-Decision Tree vs Naive Bayes comparison -> Flask REST API -> web form and analytics dashboard.
+> **Label clarification:** The supplied dataset does not contain a true dropout/withdrawal label. In this project, `at_risk = 1` means the final grade `G3` is below 10 out of 20. Therefore, this is a **low-final-grade / academic-risk proxy**, not a validated student-dropout predictor.
 
-## What "at risk" means
+## Features
 
-The dataset has no real dropout column. A student is labelled **at risk when the final grade
-G3 is below 10 (out of 20)**, the pass mark. The model predicts the probability of that outcome
-from earlier information (study time, past failures, absences, support, age, school).
-G1/G2 (earlier grades) and sex are deliberately **not** used: G1/G2 would leak the answer and
-sex would make the prediction unfair.
+- Clean and prepare student-record data.
+- Engineer additional indicators from support, prior failures, and absences.
+- Generate exploratory data-analysis charts.
+- Train and compare a Decision Tree and Gaussian Naive Bayes model.
+- Evaluate with accuracy, precision, recall, F1, ROC-AUC (when calculable), and a confusion matrix.
+- Save the trained pipeline and metrics.
+- Serve predictions through a Flask API.
+- Provide a prediction page and analytics dashboard.
+
+## Target definition and input features
+
+### Target
+
+`at_risk = 1` when `G3 < 10`; otherwise `at_risk = 0`.
+
+This is a proxy label based on final grade. It should not be described as actual dropout unless a real withdrawal/dropout outcome is added to the dataset.
+
+### Features
+
+The project uses selected fields such as school, age, study time, past failures, absences, school support, and family support. Feature preparation also derives:
+
+| Engineered feature | Meaning |
+|---|---|
+| `support_count` | Number of support indicators enabled |
+| `has_failures` | Whether the student has any recorded past failures |
+| `high_absences` | Whether absences meet the configured threshold (10 or more) |
+
+Earlier grades `G1` and `G2` are excluded to reduce target leakage from grades closely related to `G3`. The `sex` field is also excluded from the model inputs.
+
+## Tech stack
+
+- **Language:** Python
+- **Data processing:** pandas, NumPy
+- **Machine learning:** scikit-learn
+- **Model persistence:** joblib
+- **API and web server:** Flask
+- **Visualizations:** Matplotlib
+- **Frontend:** HTML, JavaScript/Chart.js (dashboard)
+- **Deployment:** Gunicorn / Render configuration
 
 ## Project structure
 
-```
-student-dropout-prediction/
-├── dataset/student_data.csv     training data (school, sex, age, studytime, failures,
-│                                schoolsup, famsup, absences, G3)
+```text
+student-dropout-predictions-main/
+├── dataset/
+│   └── student_data.csv
 ├── ml/
-│   ├── features.py              shared cleaning + feature engineering (training AND API)
-│   ├── train_model.py           EDA, training, comparison, saves model and metrics
-│   ├── student_model.pkl        created by train_model.py
-│   ├── metrics.json             created by train_model.py
-│   └── eda/                     EDA charts, created by train_model.py
-├── backend/app.py               Flask API + serves the web pages
+│   ├── features.py        # shared cleaning, feature engineering, target creation
+│   └── train_model.py     # EDA, training, comparison, metrics/model saving
+├── backend/
+│   └── app.py             # Flask pages and API endpoints
 ├── frontend/
-│   ├── index.html               prediction form
-│   └── analytics.html           dashboard (Chart.js)
+│   ├── index.html         # prediction form
+│   └── analytics.html     # analytics dashboard
 ├── requirements.txt
-└── Procfile                     gunicorn command for deployment
+└── Procfile
 ```
 
-## Run it
+Generated files such as `ml/student_model.pkl`, `ml/metrics.json`, and EDA charts are created by the training script and may not be present until training has run.
+
+## Setup and run locally
+
+Use Python 3.10 or 3.11 if your installed scikit-learn version causes compatibility issues.
 
 ```bash
+# 1. Clone the repository and enter its directory
+git clone <YOUR_REPOSITORY_URL>
+cd student-dropout-predictions-main
+
+# 2. Create and activate a virtual environment
+python -m venv .venv
+
+# Windows PowerShell
+.venv\Scripts\Activate.ps1
+
+# macOS/Linux (run this instead of the Windows command)
+source .venv/bin/activate
+
+# 3. Install dependencies
+python -m pip install --upgrade pip
 pip install -r requirements.txt
-python ml/train_model.py          # prints metrics, saves model + EDA charts
-python backend/app.py             # then open http://localhost:5000
+
+# 4. Train models and generate the model bundle, metrics, and EDA charts
+python ml/train_model.py
+
+# 5. Start the Flask application
+python backend/app.py
 ```
 
-Pages: `/` predictor, `/dashboard` analytics. API: `POST /predict`, `GET /analytics`, `GET /health`.
+Open `http://127.0.0.1:5000`.
 
-Example request:
+**Important:** Run training before starting the web app. The backend expects the trained model file to exist.
+
+## Application routes
+
+| Route | Purpose |
+|---|---|
+| `GET /` | Prediction form |
+| `GET /dashboard` | Analytics dashboard |
+| `POST /predict` | Returns a risk prediction for supplied student features |
+| `GET /analytics` | Returns dataset statistics and model metrics |
+| `GET /health` | Health/status endpoint |
+
+### Example prediction request
 
 ```bash
-curl -X POST localhost:5000/predict -H "Content-Type: application/json" \
-  -d '{"school":"GP","age":17,"studytime":2,"failures":1,"absences":8,"schoolsup":0,"famsup":1}'
+curl -X POST http://127.0.0.1:5000/predict \
+  -H "Content-Type: application/json" \
+  -d '{
+    "school": "GP",
+    "age": 17,
+    "studytime": 2,
+    "failures": 1,
+    "absences": 8,
+    "schoolsup": 0,
+    "famsup": 1
+  }'
 ```
 
-## Feature engineering
+The response format is defined by `backend/app.py`; actual risk level and probability depend on the trained model and input.
 
-| Feature | Meaning |
-| --- | --- |
-| support_count | school support + family support (0, 1 or 2) |
-| has_failures | 1 if the student has any past failure |
-| high_absences | 1 if absences are 10 or more |
+## Model evaluation
 
-## Model comparison
+The training script compares:
+- **Decision Tree:** an interpretable tree-based classifier with class balancing and parameter search when the data supports cross-validation.
+- **Gaussian Naive Bayes:** a probabilistic classifier based on conditional-independence assumptions.
 
-Fill this table from the output of `python ml/train_model.py` (also saved in `ml/metrics.json`).
-Report the held-out test numbers and the dataset size next to them.
+Metrics are saved to `ml/metrics.json` when training completes. Report results only after running the code, and always include the number of rows and test examples used.
 
-| Model | Accuracy | Precision | Recall | F1 | ROC-AUC |
-| --- | --- | --- | --- | --- | --- |
-| Decision Tree | | | | | |
-| Naive Bayes | | | | | |
+| Metric | What it tells you |
+|---|---|
+| Accuracy | Fraction of all test predictions that are correct |
+| Precision | Fraction of predicted at-risk students who are truly at risk under the proxy label |
+| Recall | Fraction of at-risk students under the proxy label that the model identifies |
+| F1-score | Harmonic mean of precision and recall |
+| ROC-AUC | Ranking discrimination across thresholds; only defined here when the test split contains both classes |
 
-Recall on the at-risk class matters most: missing a struggling student costs more than a false alarm.
+For an early-support use case, recall for the at-risk class is important, but it should be considered alongside precision and the cost of false alarms.
 
-## Deploy (Render)
+## Data and result caveats
 
-* Build command: `pip install -r requirements.txt && python ml/train_model.py`
-* Start command: `gunicorn --chdir backend app:app --bind 0.0.0.0:$PORT`
+The included CSV is a small demonstration dataset. A very small dataset or test split can produce unstable metrics, misleadingly high accuracy, or an undefined ROC-AUC. Do not present results from a tiny sample as evidence of real-world predictive performance.
 
-Training during the build keeps the saved model and the server's scikit-learn version in sync.
+For a stronger evaluation:
+1. Use a sufficiently large, documented dataset with a genuine outcome label.
+2. Keep a representative held-out test set and use cross-validation where feasible.
+3. Report class balance, sample counts, confusion matrix, and per-class precision/recall.
+4. Check calibration, subgroup performance, data quality, and potential bias.
+5. Compare against a simple baseline before claiming the model adds value.
 
-## Limitations
+## Deployment notes
 
-* The label is a proxy for risk, not actual withdrawal from school.
-* Small datasets give unreliable metrics; use the full dataset.
-* A prediction is a screening aid: it should trigger support, never a penalty.
+The repository includes a `Procfile` for Gunicorn deployment. For Render, configure the build to install requirements and train the model, then start the Flask app using the command specified by the repository's deployment configuration. Ensure the training and serving environments use compatible scikit-learn versions.
+
+## Limitations and responsible use
+
+- The target is a final-grade threshold proxy, not actual dropout.
+- Small sample sizes make model performance estimates unreliable.
+- Risk probabilities are model outputs and may not be calibrated probabilities of a real-world event.
+- The tool should be used, at most, to support human review and early assistance—not to punish, label, or deny opportunities to students.
+- Any real deployment should require validated data, privacy safeguards, transparency, fairness checks, and human oversight.
